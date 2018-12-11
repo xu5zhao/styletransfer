@@ -27,20 +27,21 @@ STYLE_SCALE = 1.0
 ITERATIONS = 1000
 VGG_PATH = 'imagenet-vgg-verydeep-19.mat'
 POOLING = 'max'
-
+content = 'examples/content.jpg'
+styles = 'examples/1-style.jpg'
+output = 'output.jpg'
 
 def build_parser():
     parser = ArgumentParser()
     parser.add_argument('--content',
             dest='content', help='content image',
-            metavar='CONTENT', required=True)
+            metavar='CONTENT', default=content)
     parser.add_argument('--styles',
-            dest='styles',
-            nargs='+', help='one or more style images',
-            metavar='STYLE', required=True)
+            dest='styles', help='one or more style images',
+            metavar='STYLE', default=styles)
     parser.add_argument('--output',
             dest='output', help='output path',
-            metavar='OUTPUT', required=True)
+            metavar='OUTPUT', default=output)
     parser.add_argument('--iterations', type=int,
             dest='iterations', help='iterations (default %(default)s)',
             metavar='ITERATIONS', default=ITERATIONS)
@@ -164,7 +165,7 @@ def main():
                          "`foo_{}.jpg` or `foo_%d.jpg`")
 
     content_image = imread(options.content)
-    style_images = [imread(style) for style in options.styles]
+    style_images = [imread(options.styles)]
 
     width = options.width
     if width is not None:
