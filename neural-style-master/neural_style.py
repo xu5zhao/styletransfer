@@ -24,12 +24,14 @@ BETA1 = 0.9
 BETA2 = 0.999
 EPSILON = 1e-08
 STYLE_SCALE = 1.0
-ITERATIONS = 1000
+ITERATIONS = 100
 VGG_PATH = 'imagenet-vgg-verydeep-19.mat'
 POOLING = 'max'
 content = 'examples/content.jpg'
 styles = 'examples/1-style.jpg'
 output = 'output.jpg'
+content_seg = 'examples/tar7.png'
+styles_seg = 'examples/tar5.png'
 
 def build_parser():
     parser = ArgumentParser()
@@ -235,6 +237,10 @@ def main():
         pooling=options.pooling,
         print_iterations=options.print_iterations,
         checkpoint_iterations=options.checkpoint_iterations,
+		content_path=content,
+		styles_path=styles,
+		content_seg=content_seg,
+		styles_seg=styles_seg
     ):
         if (image is not None) and (options.checkpoint_output is not None):
             imsave(fmt_imsave(options.checkpoint_output, iteration), image)

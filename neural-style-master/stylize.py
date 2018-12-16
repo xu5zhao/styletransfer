@@ -7,9 +7,12 @@ from collections import OrderedDict
 from PIL import Image
 import numpy as np
 import tensorflow as tf
-
+from vgg19.vgg import Vgg19
 import vgg
-
+try:
+    xrange          # Python 2
+except NameError:
+    xrange = range  # Python 3
 
 CONTENT_LAYERS = ('relu4_2', 'relu5_2')
 STYLE_LAYERS = ('relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1')
@@ -28,12 +31,68 @@ def get_loss_vals(loss_store):
 def print_progress(loss_vals):
     for key,val in loss_vals.items():
         print('{:>13s} {:g}'.format(key + ' loss:', val))
+#添加遮罩
+def load_seg(content_seg_path, style_seg_path, content_shape, style_shape):
+    color_codes = ['BLUE', 'GREEN', 'BLACK', 'WHITE', 'RED', 'YELLOW', 'GREY', 'LIGHT_BLUE', 'PURPLE']
+    def _extract_mask(seg, color_str):
+        h, w, c = np.shape(seg)
+        if color_str == "BLUE":
+            mask_r = (seg[:, :, 0] < 0.1).astype(np.uint8)
+            mask_g = (seg[:, :, 1] < 0.1).astype(np.uint8)
+            mask_b = (seg[:, :, 2] > 0.9).astype(np.uint8)
+        elif color_str == "GREEN":
+            mask_r = (seg[:, :, 0] < 0.1).astype(np.uint8)
+            mask_g = (seg[:, :, 1] > 0.9).astype(np.uint8)
+            mask_b = (seg[:, :, 2] < 0.1).astype(np.uint8)
+        elif color_str == "BLACK":
+            mask_r = (seg[:, :, 0] < 0.1).astype(np.uint8)
+            mask_g = (seg[:, :, 1] < 0.1).astype(np.uint8)
+            mask_b = (seg[:, :, 2] < 0.1).astype(np.uint8)
+        elif color_str == "WHITE":
+            mask_r = (seg[:, :, 0] > 0.9).astype(np.uint8)
+            mask_g = (seg[:, :, 1] > 0.9).astype(np.uint8)
+            mask_b = (seg[:, :, 2] > 0.9).astype(np.uint8)
+        elif color_str == "RED":
+            mask_r = (seg[:, :, 0] > 0.9).astype(np.uint8)
+            mask_g = (seg[:, :, 1] < 0.1).astype(np.uint8)
+            mask_b = (seg[:, :, 2] < 0.1).astype(np.uint8)
+        elif color_str == "YELLOW":
+            mask_r = (seg[:, :, 0] > 0.9).astype(np.uint8)
+            mask_g = (seg[:, :, 1] > 0.9).astype(np.uint8)
+            mask_b = (seg[:, :, 2] < 0.1).astype(np.uint8)
+        elif color_str == "GREY":
+            mask_r = np.multiply((seg[:, :, 0] > 0.4).astype(np.uint8),
+                                 (seg[:, :, 0] < 0.6).astype(np.uint8))
+            mask_g = np.multiply((seg[:, :, 1] > 0.4).astype(np.uint8),
+                                 (seg[:, :, 1] < 0.6).astype(np.uint8))
+            mask_b = np.multiply((seg[:, :, 2] > 0.4).astype(np.uint8),
+                                 (seg[:, :, 2] < 0.6).astype(np.uint8))
+        elif color_str == "LIGHT_BLUE":
+            mask_r = (seg[:, :, 0] < 0.1).astype(np.uint8)
+            mask_g = (seg[:, :, 1] > 0.9).astype(np.uint8)
+            mask_b = (seg[:, :, 2] > 0.9).astype(np.uint8)
+        elif color_str == "PURPLE":
+            mask_r = (seg[:, :, 0] > 0.9).astype(np.uint8)
+            mask_g = (seg[:, :, 1] < 0.1).astype(np.uint8)
+            mask_b = (seg[:, :, 2] > 0.9).astype(np.uint8)
+        return np.multiply(np.multiply(mask_r, mask_g), mask_b).astype(np.float32)
 
+    # PIL resize has different order of np.shape
+    content_seg = np.array(Image.open(content_seg_path).convert("RGB").resize(content_shape, resample=Image.BILINEAR), dtype=np.float32) / 255.0
+    style_seg = np.array(Image.open(style_seg_path).convert("RGB").resize(style_shape, resample=Image.BILINEAR), dtype=np.float32) / 255.0
+
+    color_content_masks = []
+    color_style_masks = []
+    for i in xrange(len(color_codes)):
+        color_content_masks.append(tf.expand_dims(tf.expand_dims(tf.constant(_extract_mask(content_seg, color_codes[i])), 0), -1))
+        color_style_masks.append(tf.expand_dims(tf.expand_dims(tf.constant(_extract_mask(style_seg, color_codes[i])), 0), -1))
+
+    return color_content_masks, color_style_masks
 
 def stylize(network, initial, initial_noiseblend, content, styles, preserve_colors, iterations,
         content_weight, content_weight_blend, style_weight, style_layer_weight_exp, style_blend_weights, tv_weight,
         learning_rate, beta1, beta2, epsilon, pooling,
-        print_iterations=None, checkpoint_iterations=None):
+        print_iterations=None, checkpoint_iterations=None,content_path=None,styles_path=None,content_seg=None,styles_seg=None):
     """
     Stylize images.
 
@@ -116,7 +175,16 @@ def stylize(network, initial, initial_noiseblend, content, styles, preserve_colo
                     net[content_layer] - content_features[content_layer]) /
                     content_features[content_layer].size))
         content_loss += reduce(tf.add, content_losses)
+        #遮罩 content, styles
+		#style size
+        styles_image = np.array(Image.open(styles_path).convert("RGB"), dtype=np.float32)
+        styles_width, styles_height = styles_image.shape[1], styles_image.shape[0]
+		#content size
+        content_image = np.array(Image.open(content_path).convert("RGB"), dtype=np.float32)
+        content_width, content_height = content_image.shape[1], content_image.shape[0]
 
+        content_masks, style_masks = load_seg(content_path, styles_path,
+                                              [content_width, content_height], [styles_width, styles_height])
         # style loss
         style_loss = 0
         for i in range(len(styles)):
@@ -133,7 +201,7 @@ def stylize(network, initial, initial_noiseblend, content, styles, preserve_colo
 
         # total variation denoising
         tv_y_size = _tensor_size(image[:,1:,:,:])
-        tv_x_size = _tensor_size(image[:,:,1:,:])
+        tv_x_size = _tensor_size(image[:,:,1:,:]) 
         tv_loss = tv_weight * 2 * (
                 (tf.nn.l2_loss(image[:,1:,:,:] - image[:,:shape[1]-1,:,:]) /
                     tv_y_size) +
